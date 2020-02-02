@@ -7,6 +7,11 @@
 #include <stdio.h>
 #include <DS1302.h>
 
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+
 #include <BLESniff.h>
 #include "SimpleBLE.h"
 
@@ -17,9 +22,9 @@ namespace {
 // datasheet:
 //
 //   http://datasheets.maximintegrated.com/en/ds/DS1302.pdf
-const int kCePin   = 12;  // Chip Enable
+const int kCePin   = 27; //12;  // Chip Enable
 const int kIoPin   = 14;  // Input/Output
-const int kSclkPin = 27;  // Serial Clock
+const int kSclkPin = 12; //27;  // Serial Clock
 
 // Create a DS1302 object.
 DS1302 rtc(kCePin, kIoPin, kSclkPin);
@@ -37,21 +42,31 @@ String dayAsString(const Time::Day day) {
   return "(unknown day)";
 }
 
+
+
+
+
+
+/******************************************************************** RTC Functinos ***************************************/
+
+
+Time sys_time(2020, 1, 1, 0, 0, 0, Time::kSunday);
+
 void printTime() {
   // Get the current time and date from the chip.
-  Time t = rtc.time();
+  sys_time = rtc.time();
 
   // Name the day of the week.
-  const String day = dayAsString(t.day);
+  //const String day = dayAsString(sys_time.day);
 
   // Format the time and date and insert into the temporary buffer.
   char buf[50];
   snprintf(buf, sizeof(buf), "%02d:%02d:%02d %02d-%02d-%04d",
-           t.hr, t.min, t.sec, 
-           t.date, t.mon,t.yr );
+           sys_time.hr, sys_time.min, sys_time.sec, 
+           sys_time.date, sys_time.mon,sys_time.yr );
 
   // Print the formatted string to serial so we can see the time.
-  Serial.println(buf);
+  Serial.print(buf);
 }
 
 }  // namespace
@@ -115,10 +130,17 @@ static const uint32_t k[64] = {
 
 void setup() {
   int val, x;  
+  char timestamp[50];
 
+  pinMode(5, OUTPUT);
+  digitalWrite(5,HIGH);
+  
+  
   Serial.begin(115200);
 
-
+  Serial.print("Current Time: ");
+   printTime();
+   Serial.println(" ");
   Serial.println("Do you wish to set or init clock?");
   Serial.println("Press s to set or i to init (10 seconds to select)");
 
@@ -155,6 +177,66 @@ void setup() {
 
 
 
+
+
+#if 1
+
+
+    if(!SD.begin(5)){
+        Serial.println("Card Mount Failed");
+        while(1){
+            
+        }
+       
+    }
+    else{
+          Serial.println("Card Mounted");
+    
+          
+          uint8_t cardType = SD.cardType();
+      
+          if(cardType == CARD_NONE){
+              Serial.println("No SD card attached");
+              
+          }
+
+          else{
+      
+              Serial.print("SD Card Type: ");
+              if(cardType == CARD_MMC){
+                  Serial.println("MMC");
+              } else if(cardType == CARD_SD){
+                  Serial.println("SDSC");
+              } else if(cardType == CARD_SDHC){
+                  Serial.println("SDHC");
+              } else {
+                  Serial.println("UNKNOWN");
+              }
+          
+              uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+              Serial.printf("SD Card Size: %lluMB\n", cardSize);
+          
+              String my_mac = "0002"; //WiFi.macAddress();
+              char mac_str[16];
+              my_mac.toCharArray(mac_str, 16);
+  
+              sprintf(timestamp, "Unit ID: %s Started at %d-%d-%d %d:%02d:%02d\n",mac_str, sys_time.yr,sys_time.mon,sys_time.date,sys_time.hr, sys_time.min, sys_time.sec);
+    
+        
+              Serial.println(timestamp);
+    
+            
+              appendFile(SD, "/mac_log.csv", timestamp);
+             
+            }
+          }
+
+#endif
+
+
+
+
+
     ble.begin("DIT BLE NODE");
     ble.SetCallBack(bleMACCallBack);
  
@@ -162,6 +244,7 @@ void setup() {
 
 // Loop and print the time every second.
 void loop() {
+  Serial.print("\r\n");
   printTime();
   delay(1000);
 }
@@ -251,7 +334,7 @@ void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
      unsigned long period;
 
      //rtc.refresh();
-     Time t = rtc.time();   
+     //Time t = rtc.time();   
     
  
     info[0]=0;
@@ -278,7 +361,7 @@ void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
 
     //Serial.print(mac);
 
-#if 0
+#if 1
  
 
     String mac_str(mac);
@@ -293,12 +376,12 @@ void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
 
     //snprintf(buf, sizeof(buf), "%02d:%02d:%02d %02d-%02d-%04d", t.hr, t.min, t.sec, t.date, t.mon,t.yr );
 
-    sprintf(msg, "20%d-%02d-%02d %02d:%02d:%02d, %s, %d, %s\r\n",t.yr,t.mon,t.date, t.hr, t.min, t.sec,  sha_array, rssi, info);
+    sprintf(msg, "%d-%02d-%02d %02d:%02d:%02d, %s, %d, %s\r\n",sys_time.yr,sys_time.mon,sys_time.date, sys_time.hr, sys_time.min, sys_time.sec,  sha_array, rssi, info);
      
  
  
       //just record on SD Card
-      printf("\r\n%s \r\n", msg );
+      //printf("\r\n%s \r\n", msg );
       appendFile(SD, "/mac_log.csv", msg);
 #endif
 
@@ -444,5 +527,132 @@ String SHA256(String data)
   return(btoh(hex, hash, 32));
 }
 
+
+/******************************************************************** SD Card Functinos ***************************************/
+
+void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
+    Serial.printf("Listing directory: %s\n", dirname);
+
+    File root = fs.open(dirname);
+    if(!root){
+        Serial.println("Failed to open directory");
+        return;
+    }
+    if(!root.isDirectory()){
+        Serial.println("Not a directory");
+        return;
+    }
+
+    File file = root.openNextFile();
+    while(file){
+        if(file.isDirectory()){
+            Serial.print("  DIR : ");
+            Serial.print (file.name());
+          //  time_t t= file.getLastWrite();
+          //  struct tm * tmstruct = localtime(&t);
+         //   Serial.printf("  LAST WRITE: %d-%02d-%02d %02d:%02d:%02d\n",(tmstruct->tm_year)+1900,( tmstruct->tm_mon)+1, tmstruct->tm_mday,tmstruct->tm_hour , tmstruct->tm_min, tmstruct->tm_sec);
+            if(levels){
+                listDir(fs, file.name(), levels -1);
+            }
+        } else {
+            Serial.print("  FILE: ");
+            Serial.print(file.name());
+            Serial.print("  SIZE: ");
+            Serial.print(file.size());
+          //  time_t t= file.getLastWrite();
+        //    struct tm * tmstruct = localtime(&t);
+         //   Serial.printf("  LAST WRITE: %d-%02d-%02d %02d:%02d:%02d\n",(tmstruct->tm_year)+1900,( tmstruct->tm_mon)+1, tmstruct->tm_mday,tmstruct->tm_hour , tmstruct->tm_min, tmstruct->tm_sec);
+        }
+        file = root.openNextFile();
+    }
+}
+
+void createDir(fs::FS &fs, const char * path){
+    Serial.printf("Creating Dir: %s\n", path);
+    if(fs.mkdir(path)){
+        Serial.println("Dir created");
+    } else {
+        Serial.println("mkdir failed");
+    }
+}
+
+void removeDir(fs::FS &fs, const char * path){
+    Serial.printf("Removing Dir: %s\n", path);
+    if(fs.rmdir(path)){
+        Serial.println("Dir removed");
+    } else {
+        Serial.println("rmdir failed");
+    }
+}
+
+void readFile(fs::FS &fs, const char * path){
+    Serial.printf("Reading file: %s\n", path);
+
+    File file = fs.open(path);
+    if(!file){
+        Serial.println("Failed to open file for reading");
+        return;
+    }
+
+    Serial.print("Read from file: ");
+    while(file.available()){
+        Serial.write(file.read());
+    }
+    file.close();
+}
+
+void writeFile(fs::FS &fs, const char * path, const char * message){
+    Serial.printf("Writing file: %s\n", path);
+
+    File file = fs.open(path, FILE_WRITE);
+    if(!file){
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("File written");
+    } else {
+        Serial.println("Write failed");
+    }
+    file.close();
+}
+
+void appendFile(fs::FS &fs, const char * path, const char * message){
+    //Serial.printf("Appending to file: %s\n", path);
+
+    File file = fs.open(path, FILE_APPEND);
+    if(!file){
+        Serial.println("Failed to open file for appending");
+        return;
+    }
+    if(file.print(message)){
+        Serial.print("*");
+    } else {
+        Serial.println("Append failed");
+    }
+    file.close();
+}
+
+void renameFile(fs::FS &fs, const char * path1, const char * path2){
+    Serial.printf("Renaming file %s to %s\n", path1, path2);
+    if (fs.rename(path1, path2)) {
+        Serial.println("File renamed");
+    } else {
+        Serial.println("Rename failed");
+    }
+}
+
+void deleteFile(fs::FS &fs, const char * path){
+    Serial.printf("Deleting file: %s\n", path);
+    if(fs.remove(path)){
+        Serial.println("File deleted");
+    } else {
+        Serial.println("Delete failed");
+    }
+}
+
+
+
+/*******************************************************************************************************************************/
 
   
