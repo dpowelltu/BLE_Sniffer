@@ -1,9 +1,6 @@
-// Example sketch for interfacing with the DS1302 timekeeping chip.
-//
-// Copyright (c) 2009, Matt Sparks
-// All rights reserved.
-//
-// http://quadpoint.org/projects/arduino-ds1302
+// BLE Sniffer code for use on ESP32, with SD Card and DS1302 RTC
+// see read me file for more details.
+
 #include <stdio.h>
 #include <DS1302.h>
 
