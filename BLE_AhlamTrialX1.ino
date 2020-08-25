@@ -10,6 +10,7 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
+//#include "EEPROM.h"
 
 
 #include <BLESniff.h>
@@ -80,17 +81,22 @@ String SHA256(String data);
 typedef struct{
     unsigned char mac[6];
     int rssi;
-    unsigned long time; 
+    unsigned char info[6];
+    unsigned char timedata[6]; 
 }scan_hit;
 
+scan_hit scan_results_array[1000];
+unsigned int scan_result_num = 0;
 
-scan_hit scan_results[1024];
+//scan_hit1 scan_results[2][1024];
 
 
 char hex[256];
 uint8_t data[256];
 int start = 0;
 int seconds = 0;
+int unit_id;
+
 uint8_t hash[32];
 String pin;
 #define SHA256_BLOCK_SIZE 32
@@ -131,13 +137,25 @@ static const uint32_t k[64] = {
 void setup() {
   int val, x;  
   char timestamp[50];
-
+  char *ptr;
+  
   pinMode(5, OUTPUT);
   digitalWrite(5,HIGH);
   
   
   Serial.begin(115200);
 
+#if 0
+  /*
+  ptr = (char *)&unit_id;
+  *ptr = EEPROM.read(0);
+  ptr++;
+  *ptr = EEPROM.read(1);
+*/
+  Serial.print("Unit ID: ");
+  Serial.println(unit_id);
+
+  
   Serial.print("Current Time: ");
    printTime();
    Serial.println(" ");
@@ -168,6 +186,12 @@ void setup() {
       set_clock();
       break;
     }
+/*
+    if(val='u'){
+      Serial.println("init unit ID");
+      set_unit_id();
+    }
+    */
     if(x%10==0){
       Serial.print('.');
     }
@@ -176,7 +200,7 @@ void setup() {
   }
 
 
-
+#endif
 
 
 #if 1
@@ -216,7 +240,7 @@ void setup() {
               uint64_t cardSize = SD.cardSize() / (1024 * 1024);
               Serial.printf("SD Card Size: %lluMB\n", cardSize);
           
-              String my_mac = "0002"; //WiFi.macAddress();
+              String my_mac = "0001"; //WiFi.macAddress();
               char mac_str[16];
               my_mac.toCharArray(mac_str, 16);
   
@@ -234,6 +258,19 @@ void setup() {
 #endif
 
 
+#if 0
+
+  SPI.begin();
+
+  Serial.println("SPI Test");
+  while(1){
+    digitalWrite(5,LOW);
+    SPI.transfer(0x22);
+    digitalWrite(5,HIGH);
+    delay(1000);
+  }
+
+#endif
 
 
 
@@ -247,8 +284,36 @@ void loop() {
   Serial.print("\r\n");
   printTime();
   delay(1000);
+
+  if((sys_time.sec % 10)==0){
+    Serial.print(scan_result_num);    
+  }
+  
 }
 
+void set_unit_id(void){
+ int id = 0;
+  char mybuffer[50];
+  char *ptr;
+  
+  Serial.print ("Enter the Unit ID:\r\n");
+  Serial.print ("01234\r\n");
+  readline (mybuffer, 5);
+  sscanf (mybuffer, "%5u",&id);
+
+  ptr = (char *)&id;
+  
+  //EEPROM.write(*ptr,0);
+  ptr++;
+ // EEPROM.write(*ptr,1);
+
+
+  //EEPROM.writeShort(0, id);
+  Serial.print ("Unit ID: ");
+  Serial.print (id);
+  Serial.print ("\r\n");
+  
+}
 
 // get user input, set clock
 void set_clock (void)
@@ -258,7 +323,7 @@ void set_clock (void)
   char mybuffer[50];
   
   Serial.print ("Enter the time:\r\n");
-  Serial.print ("HH MM SS DD MM YYYY\r\n");
+  Serial.print ("C\r\n");
   readline (mybuffer, 20);
   sscanf (mybuffer, "%2u %2u %2u %2u %2u %4u", &h, &m, &s, &dy, &mn, &yr);
 
@@ -326,6 +391,7 @@ uint16_t readline (char *buffer, uint16_t limit)
 
 void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
      char msg[512];
+     char fname[100];
      char mac[64];
      char info[64];
      char timestamp[30];
@@ -354,14 +420,19 @@ void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
     #endif
     
    // info[i]=0;
+#if 1
+    memcpy(scan_results_array[scan_result_num].mac, addr, 6);
+    scan_results_array[scan_result_num].rssi = rssi;
+    //sys_time.GetData(scan_results_array[0][0].timedata);
 
-     
+    scan_result_num++;
+#endif     
   
     sprintf(mac, "%02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
 
     //Serial.print(mac);
 
-#if 1
+#if 0
  
 
     String mac_str(mac);
@@ -378,11 +449,17 @@ void bleMACCallBack(unsigned char *addr, int rssi, unsigned char *adv){
 
     sprintf(msg, "%d-%02d-%02d %02d:%02d:%02d, %s, %d, %s\r\n",sys_time.yr,sys_time.mon,sys_time.date, sys_time.hr, sys_time.min, sys_time.sec,  sha_array, rssi, info);
      
+    sprintf(fname, "/mac_log_%d-%02d-%02d.csv",sys_time.yr,sys_time.mon,sys_time.date);
  
  
       //just record on SD Card
       //printf("\r\n%s \r\n", msg );
+      #if 1
+      appendFile(SD, fname, msg);
+      #else
+      
       appendFile(SD, "/mac_log.csv", msg);
+      #endif
 #endif
 
     
